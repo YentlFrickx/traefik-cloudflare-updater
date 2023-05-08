@@ -124,12 +124,12 @@ func (c *CloudflareUpdater) eventLoop() {
 	filterArgs.Add("event", "update")
 
 	// Start the event stream
-	eventStream, err := c.DockerClient.Events(context.Background(), types.EventsOptions{
+	eventStream, _ := c.DockerClient.Events(context.Background(), types.EventsOptions{
 		Filters: filterArgs,
 	})
-	if err != nil {
-		log.Fatalf("failed to start event stream: %v", err)
-	}
+	//if err != nil {
+	//	log.Fatalf("failed to start event stream: %v", err)
+	//}
 
 	// Continuously listen for events
 	for {
