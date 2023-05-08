@@ -22,6 +22,8 @@ class TraefikUpdater:
         elif self.cf_token is not None and (self.cf_email is not None or self.cf_global_key is not None):
             print("Neither CF_EMAIL or CF_GLOBAL_KEY should be set when using CF_TOKEN (using CF_TOKEN by default)")
 
+        self.swarm = os.getenv("SWARM_MODE", 'False').lower() in ('true', '1', 't')
+
         if excluded is None:
             self.excluded_domains = []
         else:
@@ -32,8 +34,6 @@ class TraefikUpdater:
 
         self.host_pattern = re.compile(r"\`([a-zA-Z0-9\.]+)\`")
         self.dkr = docker.from_env()
-
-        self.swarm = os.getenv("SWARM_MODE", 'False').lower() in ('true', '1', 't')
 
     def enter_update_loop(self):
         print("Listening for new containers...")
@@ -52,7 +52,7 @@ class TraefikUpdater:
 
     def process(self):
         if self.swarm:
-            self.process_containers()
+            self.process_services()
         else:
             self.process_containers()
 
