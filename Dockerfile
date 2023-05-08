@@ -1,11 +1,15 @@
-FROM python:alpine as base
+FROM golang:alpine as builder
 
-FROM base as build
-COPY requirements.txt .
-RUN pip install --prefix=/install -r requirements.txt
+WORKDIR /app
 
-FROM base
-COPY --from=build /install /usr/local
-ADD *.py ./
-ENTRYPOINT ["python3"]
-CMD ["-u","app.py"]
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" .
+
+FROM alpine:3.14 AS final
+
+WORKDIR /app
+
+COPY --from=builder /app/traefik-cloudflare-updater /usr/bin/
+
+ENTRYPOINT ["traefik-cloudflare-updater"]

@@ -23,4 +23,4 @@ jobs:
         with:
           context: .
           push: true
-          tags: yfrickx/traefik-cloudflare-updater:alpha
+          tags: yfrickx/traefik-cloudflare-updater:latest

@@ -60,11 +60,11 @@ class TraefikUpdater:
         services = self.dkr.services.list(filters={"label": "traefik.enable=true"})
         print(f"Found {len(services)} existing services to process")
         for service in services:
-            self.process_container(service)
+            self.process_service(service)
         print("Finished bulk updating services!")
 
     def process_service(self, service):
-        for label, value in service.labels.items():
+        for label, value in service.attrs.
             if "rule" in label and "Host" in value:
                 domains = self.host_pattern.findall(value)
                 print(f"Found domains: {domains} for service: {service.name}")
