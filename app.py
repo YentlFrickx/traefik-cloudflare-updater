@@ -5,7 +5,7 @@ from TraefikUpdater import TraefikUpdater
 
 def main():
     updater = TraefikUpdater()
-    updater.process_containers()
+    updater.process()
 
     # This blocks
     updater.enter_update_loop()
