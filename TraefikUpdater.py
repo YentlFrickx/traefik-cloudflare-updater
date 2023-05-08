@@ -4,7 +4,7 @@ import time
 import docker
 import CloudFlare
 
-__author__ = "David Chidell"
+__author__ = "David Chidell, Yentl Frickx"
 
 
 class TraefikUpdater:
@@ -33,6 +33,8 @@ class TraefikUpdater:
         self.host_pattern = re.compile(r"\`([a-zA-Z0-9\.]+)\`")
         self.dkr = docker.from_env()
 
+        self.swarm = os.getenv("SWARM_MODE", 'False').lower() in ('true', '1', 't')
+
     def enter_update_loop(self):
         print("Listening for new containers...")
         t = int(time.time())
@@ -47,6 +49,27 @@ class TraefikUpdater:
                     if container.labels.get("traefik.enable", "False").upper() == "TRUE":
                         print(f"New container online: {container.name}, processing...")
                         self.process_container(container)
+
+    def process(self):
+        if self.swarm:
+            self.process_containers()
+        else:
+            self.process_containers()
+
+    def process_services(self):
+        services = self.dkr.services.list(filters={"label": "traefik.enable=true"})
+        print(f"Found {len(services)} existing services to process")
+        for service in services:
+            self.process_container(service)
+        print("Finished bulk updating services!")
+
+    def process_service(self, service):
+        for label, value in service.labels.items():
+            if "rule" in label and "Host" in value:
+                domains = self.host_pattern.findall(value)
+                print(f"Found domains: {domains} for service: {service.name}")
+                for domain in domains:
+                    self.update_domain(domain)
 
     def process_containers(self):
         containers = self.dkr.containers.list(filters={"status": "running", "label": "traefik.enable=true"})
