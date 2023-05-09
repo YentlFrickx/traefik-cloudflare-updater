@@ -34,36 +34,19 @@ func (c *CloudflareUpdater) updateDomain(domain string) {
 	records, _, err := c.CloudflareApi.ListDNSRecords(context.Background(), zoneIdentifier, cloudflare.ListDNSRecordsParams{Name: domain + "." + c.Tld})
 	if err != nil {
 		log.Errorln(err)
-	} else {
-		if len(records) > 0 {
-			params := cloudflare.UpdateDNSRecordParams{
-				Type:    "A",
-				Name:    domain,
-				ID:      records[0].ID,
-				Content: c.Ip.String(),
-				TTL:     1,
-				Proxied: boolPointer(true),
-				Comment: "Created from traefik",
-			}
-			_, err := c.CloudflareApi.UpdateDNSRecord(context.Background(), zoneIdentifier, params)
-			if err != nil {
-				log.Errorln(err)
-			}
-		} else {
-			params := cloudflare.CreateDNSRecordParams{
-				Type:    "A",
-				Name:    domain,
-				Content: c.Ip.String(),
-				TTL:     1,
-				Proxied: boolPointer(true),
-				Comment: "Created from traefik",
-			}
-			_, err := c.CloudflareApi.CreateDNSRecord(context.Background(), zoneIdentifier, params)
-			if err != nil {
-				log.Errorln(err)
-			}
+	} else if len(records) == 0 {
+		params := cloudflare.CreateDNSRecordParams{
+			Type:    "A",
+			Name:    domain,
+			Content: c.Ip.String(),
+			TTL:     1,
+			Proxied: boolPointer(true),
+			Comment: "Created from traefik",
 		}
-
+		_, err := c.CloudflareApi.CreateDNSRecord(context.Background(), zoneIdentifier, params)
+		if err != nil {
+			log.Errorln(err)
+		}
 	}
 }
 
@@ -127,9 +110,6 @@ func (c *CloudflareUpdater) eventLoop() {
 	eventStream, _ := c.DockerClient.Events(context.Background(), types.EventsOptions{
 		Filters: filterArgs,
 	})
-	//if err != nil {
-	//	log.Fatalf("failed to start event stream: %v", err)
-	//}
 
 	// Continuously listen for events
 	for {
