@@ -65,6 +65,7 @@ func (c *CloudflareUpdater) updateDomain(domain string) {
 
 func (c *CloudflareUpdater) extractHostnames(jsonData string) ([]string, error) {
 	log.Infoln("Extracting hostnames from data")
+	log.Infoln(jsonData)
 	var data []map[string]interface{}
 	err := json.Unmarshal([]byte(jsonData), &data)
 	if err != nil {
