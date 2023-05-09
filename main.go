@@ -65,7 +65,6 @@ func (c *CloudflareUpdater) updateDomain(domain string) {
 
 func (c *CloudflareUpdater) extractHostnames(jsonData string) ([]string, error) {
 	log.Infoln("Extracting hostnames from data")
-	log.Infoln(jsonData)
 	var data []map[string]interface{}
 	err := json.Unmarshal([]byte(jsonData), &data)
 	if err != nil {
@@ -104,10 +103,12 @@ func (c *CloudflareUpdater) extractHostname(rule string) (string, error) {
 
 func (c *CloudflareUpdater) getRoutes() (string, error) {
 	url := "http://traefik:80/api/http/routers"
-	header := http.Header{}
-	header.Set("Host", "traefik.internal")
+	req, _ := http.NewRequest("GET", url, nil)
 
-	res, err := http.Get(url)
+	req.Host = "traefik.internal"
+	client := &http.Client{}
+	res, err := client.Do(req)
+
 	if err != nil {
 		log.Errorln("error while fetching routes")
 		return "", err
