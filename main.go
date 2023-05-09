@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/chyeh/pubip"
 	"github.com/cloudflare/cloudflare-go"
-	dockerClient "github.com/docker/docker/client"
 	log "github.com/sirupsen/logrus"
 	"io"
 	"net"
@@ -17,7 +16,6 @@ import (
 )
 
 type CloudflareUpdater struct {
-	DockerClient  *dockerClient.Client
 	CloudflareApi *cloudflare.API
 	Ip            net.IP
 	Tld           string
@@ -66,6 +64,7 @@ func (c *CloudflareUpdater) updateDomain(domain string) {
 }
 
 func (c *CloudflareUpdater) extractHostnames(jsonData string) ([]string, error) {
+	log.Infoln("Extracting hostnames from data")
 	var data []map[string]interface{}
 	err := json.Unmarshal([]byte(jsonData), &data)
 	if err != nil {
@@ -109,12 +108,14 @@ func (c *CloudflareUpdater) getRoutes() (string, error) {
 
 	res, err := http.Get(url)
 	if err != nil {
+		log.Errorln("error while fetching routes")
 		return "", err
 	}
 	defer res.Body.Close()
 
 	body, err := io.ReadAll(res.Body)
 	if err != nil {
+		log.Errorln("error while reading routes")
 		return "", err
 	}
 
