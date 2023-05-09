@@ -2,16 +2,15 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"github.com/chyeh/pubip"
 	"github.com/cloudflare/cloudflare-go"
-	"github.com/docker/docker/api/types"
-	"github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
-	"github.com/docker/docker/api/types/swarm"
 	dockerClient "github.com/docker/docker/client"
 	log "github.com/sirupsen/logrus"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -47,85 +46,96 @@ func (c *CloudflareUpdater) updateDomain(domain string) {
 		if err != nil {
 			log.Errorln(err)
 		}
-	}
-}
-
-func (c *CloudflareUpdater) processService(service swarm.Service) {
-	for label, value := range service.Spec.Labels {
-		if strings.Contains(label, "rule") && strings.Contains(value, "Host") {
-			c.checkRule(value)
+		log.Infoln("Created dns entry for " + domain)
+	} else if len(records) > 0 && records[0].Content != c.Ip.String() {
+		params := cloudflare.UpdateDNSRecordParams{
+			Type:    "A",
+			Name:    domain,
+			ID:      records[0].ID,
+			Content: c.Ip.String(),
+			TTL:     1,
+			Proxied: boolPointer(true),
+			Comment: "Created from traefik",
 		}
-	}
-}
-
-func (c *CloudflareUpdater) checkRule(value string) {
-	if strings.Contains(value, c.Tld) {
-		subdomain := strings.TrimSuffix(strings.TrimPrefix(value, "Host(`"), fmt.Sprintf(".%s`)", c.Tld))
-		log.Infoln("Found domain: " + subdomain)
-		c.updateDomain(subdomain)
-	}
-}
-
-func (c *CloudflareUpdater) init() {
-	log.Infoln("Running initial check")
-	// List all running services in the Docker Swarm with the traefik.enable=true label
-	labelFilter := filters.NewArgs()
-	labelFilter.Add("label", "traefik.enable=true")
-
-	services, err := c.DockerClient.ServiceList(context.Background(), types.ServiceListOptions{Filters: labelFilter})
-	if err != nil {
-		log.Fatalf("failed to list Docker services: %v", err)
-	}
-
-	for _, service := range services {
-		c.processService(service)
-	}
-}
-
-func (c *CloudflareUpdater) ipLoop() {
-
-	for {
-		ip, err := pubip.Get()
+		_, err := c.CloudflareApi.UpdateDNSRecord(context.Background(), zoneIdentifier, params)
 		if err != nil {
-			fmt.Println("Couldn't get my IP address:", err)
+			log.Errorln(err)
 		}
-
-		if !ip.Equal(c.Ip) {
-			c.init()
-			c.Ip = ip
-		}
-		time.Sleep(60 * time.Second)
+		log.Infoln("Updated dns entry for " + domain)
 	}
-
 }
 
-func (c *CloudflareUpdater) eventLoop() {
-	// Define a filter to only listen for service-related events
-	filterArgs := filters.NewArgs()
-	filterArgs.Add("type", "service")
-	filterArgs.Add("event", "create")
-	filterArgs.Add("event", "update")
+func (c *CloudflareUpdater) extractHostnames(jsonData string) ([]string, error) {
+	var data []map[string]interface{}
+	err := json.Unmarshal([]byte(jsonData), &data)
+	if err != nil {
+		return nil, err
+	}
 
-	// Start the event stream
-	eventStream, _ := c.DockerClient.Events(context.Background(), types.EventsOptions{
-		Filters: filterArgs,
-	})
-
-	// Continuously listen for events
-	for {
-		select {
-		case event := <-eventStream:
-			if event.Type == events.ServiceEventType {
-				// Service-related event, do something with it
-				fmt.Println("Received service event:", event.Action, event.Actor.Attributes)
-				service, _, err := c.DockerClient.ServiceInspectWithRaw(context.Background(), event.Actor.ID, types.ServiceInspectOptions{})
-				if err != nil {
-					log.Errorln(err)
-					continue
+	var hostnames []string
+	for _, entry := range data {
+		if rule, ok := entry["rule"].(string); ok {
+			if host, err := c.extractHostname(rule); err == nil {
+				if strings.HasSuffix(host, "."+c.Tld) {
+					hostnames = append(hostnames, strings.TrimSuffix(host, "."+c.Tld))
 				}
-				c.processService(service)
 			}
 		}
+	}
+	return hostnames, nil
+}
+
+func (c *CloudflareUpdater) extractHostname(rule string) (string, error) {
+	// split rule on backticks
+	parts := []rune(rule)
+	for i := 0; i < len(parts); i++ {
+		if parts[i] == '`' {
+			// extract the string between the backticks
+			j := i + 1
+			for ; j < len(parts) && parts[j] != '`'; j++ {
+			}
+			if j > i+1 {
+				return string(parts[i+1 : j]), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("No hostname found in rule '%s'", rule)
+}
+
+func (c *CloudflareUpdater) getRoutes() (string, error) {
+	url := "http://traefik:80/api/http/routers"
+	header := http.Header{}
+	header.Set("Host", "traefik.internal")
+
+	res, err := http.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+
+	body, err := io.ReadAll(res.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(body), nil
+}
+
+func (c *CloudflareUpdater) checkHostnames() {
+	jsonData, err := c.getRoutes()
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	hostnames, err := c.extractHostnames(jsonData)
+	if err != nil {
+		log.Errorln(err)
+		return
+	}
+
+	for _, hostname := range hostnames {
+		c.updateDomain(hostname)
 	}
 }
 
@@ -140,23 +150,15 @@ func main() {
 		fmt.Println("Couldn't get my IP address:", err)
 	}
 
-	// Docker client initialization
-	client, err := dockerClient.NewClientWithOpts(dockerClient.FromEnv, dockerClient.WithAPIVersionNegotiation())
-	if err != nil {
-		log.Fatalf("failed to create Docker client: %v", err)
-	}
-
 	cloudflareUpdater := CloudflareUpdater{
-		DockerClient:  client,
 		CloudflareApi: api,
 		Ip:            ip,
 		Tld:           os.Getenv("TLD"),
 	}
 
-	cloudflareUpdater.init()
-
-	go cloudflareUpdater.ipLoop()
-
-	cloudflareUpdater.eventLoop()
+	for {
+		cloudflareUpdater.checkHostnames()
+		time.Sleep(60 * time.Second)
+	}
 
 }
